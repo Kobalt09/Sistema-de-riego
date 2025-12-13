@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Configuración Arduino</title>
+<style>
+body {
+  font-family: Arial;
+  max-width: 500px;
+  margin: 20px auto;
+}
+input, button {
+  padding: 6px;
+  margin: 6px 0;
+  width: 100%;
+}
+#log {
+  background: #f3f3f3;
+  padding: 10px;
+  height: 150px;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+}
+</style>
+</head>
+<body>
+
+<h2>Configuración del Sistema de Riego</h2>
+
+<button id="connectBtn">Conectar a Arduino</button>
+
+<h3>Humedad mínima (%)</h3>
+<input id="hum" type="number" min="0" max="100" placeholder="Ej: 40">
+
+<h3>Intervalo de medición (segundos)</h3>
+<input id="time" type="number" min="5" placeholder="Ej: 30">
+
+<button id="sendBtn">Enviar configuración</button>
+
+<h3>Respuesta del Arduino</h3>
+<div id="log"></div>
+
+<script>
+let port, writer, reader;
+const logDiv = document.getElementById("log");
+
+function log(text) {
+  logDiv.innerHTML += text + "<br>";
+  logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+document.getElementById("connectBtn").onclick = async () => {
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+
+    writer = port.writable.getWriter();
+    reader = port.readable.getReader();
+
+    log("Conectado al Arduino.");
+
+    // Lectura de mensajes
+    readLoop();
+  } catch (e) {
+    log("Error al conectar: " + e);
+  }
+};
+
+async function readLoop() {
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    log(new TextDecoder().decode(value));
+  }
+}
+
+document.getElementById("sendBtn").onclick = async () => {
+  const hum = document.getElementById("hum").value;
+  const t = document.getElementById("time").value;
+
+  if (hum) writeSerial(`SET HUM ${hum}\n`);
+  if (t) writeSerial(`SET TIME ${t}\n`);
+};
+
+function writeSerial(text) {
+  writer.write(new TextEncoder().encode(text));
+  log("Enviado: " + text);
+}
+</script>
+
+</body>
+</html>
