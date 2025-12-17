@@ -5,7 +5,7 @@
 // 2. Copia estas 3 lineas de "Firmware Configuration" y pégalas aquí:
 #define BLYNK_TEMPLATE_ID "TMPL2M3Hol8vV"
 #define BLYNK_TEMPLATE_NAME "Monitor de riego"
-#define BLYNK_AUTH_TOKEN "bU4X2X0X0X0X0X0X0X0X0X0X0X0X0X0X"
+#define BLYNK_AUTH_TOKEN "MkGbBwmpKaV2DYEUepVLTzdiXVmdzaYc"
 
 // **************************************************************************
 // LIBRERÍAS
@@ -19,7 +19,7 @@
 // **************************************************************************
 // CREDENCIALES WIFI
 // **************************************************************************
-char ssid[] = "TU_RED_WIFI";
+char ssid[] = "PVZ";
 char pass[] = "";
 
 // **************************************************************************

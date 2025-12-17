@@ -3,36 +3,65 @@
 
 <head>
   <meta charset="utf-8">
-  <title>Configuración Arduino WiFi</title>
+  <title>Control de Riego Blynk</title>
   <style>
     body {
-      font-family: Arial;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       max-width: 500px;
       margin: 20px auto;
+      background-color: #f7f9fc;
+      color: #333;
+    }
+
+    h2,
+    h3 {
+      color: #2c3e50;
     }
 
     input,
     button {
-      padding: 6px;
-      margin: 6px 0;
+      padding: 10px;
+      margin: 8px 0;
       width: 100%;
       box-sizing: border-box;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+
+    button {
+      background-color: #2ecc71;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    button:hover {
+      background-color: #27ae60;
     }
 
     .status-box {
-      background: #e0f7fa;
-      padding: 15px;
-      border-radius: 5px;
+      background: #ffffff;
+      padding: 20px;
+      border-radius: 8px;
       margin-bottom: 20px;
-      border: 1px solid #b2ebf2;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      text-align: center;
+    }
+
+    .status-value {
+      font-size: 2em;
+      font-weight: bold;
+      color: #2980b9;
     }
 
     #log {
-      background: #f3f3f3;
+      background: #2c3e50;
+      color: #ecf0f1;
       padding: 10px;
       height: 150px;
       overflow-y: auto;
-      border: 1px solid #ccc;
+      border-radius: 4px;
       font-family: monospace;
       font-size: 12px;
     }
@@ -41,36 +70,44 @@
 
 <body>
 
-  <h2>Sistema de Riego - Control WiFi</h2>
+  <h2>Sistema de Riego (Vía Blynk)</h2>
 
   <!-- Sección de Conexión -->
-  <h3>Dirección IP del ESP32</h3>
-  <input id="espIp" type="text" placeholder="Ej: 192.168.1.100" value="192.168.1.">
-  <button id="connectBtn">Conectar / Empezar Lectura</button>
+  <h3>Blynk Auth Token</h3>
+  <input id="authToken" type="text" placeholder="Pega tu Token aquí (ej: MkGb...)"
+    value="MkGbBwmpKaV2DYEUepVLTzdiXVmdzaYc">
+  <button id="connectBtn">Conectar a la Nube</button>
 
   <!-- Estado Actual -->
   <div class="status-box">
-    <strong>Estado Actual:</strong>
-    <div id="currentStatus">Desconectado...</div>
-    <div>Humedad Última: <span id="valHum">--</span>%</div>
+    <div>Humedad Actual</div>
+    <div class="status-value"><span id="valHum">--</span>%</div>
+    <div id="connectionStatus" style="font-size: 0.8em; color: #7f8c8d; margin-top: 5px;">Desconectado</div>
   </div>
 
   <!-- Configuración -->
   <h3>Configuración</h3>
-  <label>Humedad Mínima (%)</label>
-  <input id="hum" type="number" min="0" max="100" placeholder="Ej: 40">
+  <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+    <label>Humedad Mínima Disparo (%)</label>
+    <input id="hum" type="number" min="0" max="100" placeholder="Ej: 40">
 
-  <label>Intervalo de medición (segundos)</label>
-  <input id="time" type="number" min="5" placeholder="Ej: 30">
+    <label>Intervalo de medición (segundos)</label>
+    <input id="time" type="number" min="5" placeholder="Ej: 30">
 
-  <button id="sendBtn">Enviar Configuración</button>
+    <button id="sendBtn" style="background-color: #3498db;">Actualizar Parámetros</button>
+  </div>
 
-  <h3>Registro de Eventos</h3>
+  <h3>Log de Operaciones</h3>
   <div id="log"></div>
 
   <script>
     let pollingInterval = null;
     const logDiv = document.getElementById("log");
+
+    // Pines Virtuales según arduino logica.cpp
+    const PIN_HUMEDAD = "V0";
+    const PIN_MIN_HUM = "V1";
+    const PIN_INTERVALO = "V2";
 
     function log(text) {
       const time = new Date().toLocaleTimeString();
@@ -78,72 +115,92 @@
       logDiv.scrollTop = logDiv.scrollHeight;
     }
 
-    function getBaseUrl() {
-      let ip = document.getElementById("espIp").value.trim();
-      if (!ip.startsWith("http")) {
-        ip = "http://" + ip;
-      }
-      return ip;
+    function getToken() {
+      return document.getElementById("authToken").value.trim();
     }
 
-    // Botón Conectar (Inicia el polling)
+    // Botón Conectar
     document.getElementById("connectBtn").onclick = () => {
+      const token = getToken();
+      if (!token) {
+        log("Error: Token vacío");
+        return;
+      }
+
       if (pollingInterval) clearInterval(pollingInterval);
 
-      log("Iniciando conexión a " + getBaseUrl());
-      fetchData(); // Primer intento inmediato
-      pollingInterval = setInterval(fetchData, 3000); // Polling cada 3s
+      log("Iniciando conexión a Blynk Cloud...");
+      fetchData(); // Primer intento
+      pollingInterval = setInterval(fetchData, 5000); // Polling cada 5s (Blynk tiene límites de rate)
     };
 
-    // Función para obtener datos
+    // Obtener datos (V0)
     async function fetchData() {
-      const url = getBaseUrl() + "/data";
+      const token = getToken();
+      // Blynk GET API: https://blynk.cloud/external/api/get?token={token}&v0&v1&v2
+      const url = `https://blynk.cloud/external/api/get?token=${token}&${PIN_HUMEDAD}&${PIN_MIN_HUM}&${PIN_INTERVALO}`;
+
       try {
         const response = await fetch(url);
-        if (!response.ok) throw new Error("Error HTTP " + response.status);
+        if (!response.ok) throw new Error("HTTP " + response.status);
 
         const data = await response.json();
+        // La API devuelve un objeto { v0: value, v1: value, ... } o el valor raw si pides uno solo.
+        // Al pedir varios V-Pins, devuelve JSON estructurado.
 
         // Actualizar UI
-        document.getElementById("currentStatus").innerText = "Conectado";
-        document.getElementById("currentStatus").style.color = "green";
-        document.getElementById("valHum").innerText = data.humedad;
+        document.getElementById("connectionStatus").innerText = "Conectado - Recibiendo datos";
+        document.getElementById("connectionStatus").style.color = "green";
 
-        // Solo actualizar inputs si no están enfocados (para no molestar al usuario mientras escribe)
+        document.getElementById("valHum").innerText = data[PIN_HUMEDAD] || "--";
+
+        // Actualizar placeholders si no se están editando
         if (document.activeElement.id !== "hum") {
-          document.getElementById("hum").placeholder = `Actual: ${data.conf_min}`;
+          document.getElementById("hum").placeholder = `Actual: ${data[PIN_MIN_HUM]}`;
         }
         if (document.activeElement.id !== "time") {
-          document.getElementById("time").placeholder = `Actual: ${data.conf_interval}`;
+          document.getElementById("time").placeholder = `Actual: ${data[PIN_INTERVALO]}`;
         }
 
       } catch (e) {
-        document.getElementById("currentStatus").innerText = "Error de conexión";
-        document.getElementById("currentStatus").style.color = "red";
+        document.getElementById("connectionStatus").innerText = "Error - Ver Log";
+        document.getElementById("connectionStatus").style.color = "red";
         console.error(e);
+        // Si falla, es probable que la API haya cambiado o el token sea incorrecto.
+        // Intento fallback a lectura individual si el JSON falla (a veces Blynk devuelve raw string si 1 pin)
       }
     }
 
-    // Botón Enviar Configuración
+    // Enviar Configuración (V1, V2)
     document.getElementById("sendBtn").onclick = async () => {
+      const token = getToken();
       const hum = document.getElementById("hum").value;
       const t = document.getElementById("time").value;
 
-      const params = new URLSearchParams();
-      if (hum) params.append("hum", hum);
-      if (t) params.append("time", t);
+      if (!token) return log("Falta el Token");
 
-      const url = `${getBaseUrl()}/set?${params.toString()}`;
+      // Para actualizar múltiples pines: 
+      // GET https://blynk.cloud/external/api/batch/update?token={token}&V1=value&V2=value
 
-      log("Enviando config...");
+      let params = [];
+      if (hum) params.push(`${PIN_MIN_HUM}=${hum}`);
+      if (t) params.push(`${PIN_INTERVALO}=${t}`);
+
+      if (params.length === 0) return log("Nada que enviar");
+
+      const url = `https://blynk.cloud/external/api/batch/update?token=${token}&${params.join("&")}`;
+
+      log("Enviando comando...");
       try {
-        const response = await fetch(url); // GET o POST sirve según el código arduino
-        const text = await response.text();
-        log("Respuesta: " + text);
-        // Forzar actualización inmediata de datos
-        setTimeout(fetchData, 500);
+        const response = await fetch(url);
+        if (response.ok) {
+          log("Comando enviado OK");
+          setTimeout(fetchData, 1000); // Refrescar
+        } else {
+          log("Error enviando: " + response.status);
+        }
       } catch (e) {
-        log("Error al enviar: " + e.message);
+        log("Error red: " + e.message);
       }
     };
 
