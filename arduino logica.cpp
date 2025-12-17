@@ -30,10 +30,10 @@ Servo pumpServo;
 BlynkTimer timer;
 
 // PINES
-const int sensorPin = A0;
-const int ledMeasuring = 7; 
+const int sensorPin = 16;
+const int ledMeasuring = 2; 
 const int ledWaiting = 4;   
-const int pumpSignalPin = 2; 
+const int pumpSignalPin = 18; 
 
 // CONFIGURACIÓN (Valores por defecto)
 int humedadMin = 40;
