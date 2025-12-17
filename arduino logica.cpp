@@ -14,7 +14,7 @@
 #include <WiFiClient.h>
 #include <BlynkSimpleEsp32.h>
 #include <time.h>
-#include <Servo.h>
+#include <ESP32Servo.h>
 
 // **************************************************************************
 // CREDENCIALES WIFI
@@ -61,7 +61,7 @@ void medirHumedad() {
 
   // Leer
   int valor = analogRead(sensorPin);
-  int humedad = map(valor, 0, 1023, 0, 100);
+  int humedad = map(valor, 0, 4095, 0, 100);
   
   // Imprimir y Enviar a Blynk
   Serial.print("Humedad: ");
@@ -131,10 +131,10 @@ BLYNK_CONNECTED() {
 // **************************************************************************
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   // Configurar Pines
-  controlsensor.attach(9);
+  controlsensor.attach(13); // Pin compatible con ESP32
   pumpServo.attach(pumpSignalPin);
   pumpServo.write(0); // Asegurar apagado
 
