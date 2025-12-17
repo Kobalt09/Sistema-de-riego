@@ -1,0 +1,43 @@
+# Guía de Uso: Sistema de Riego con Blynk IoT
+
+Esta versión utiliza la plataforma Blynk para que puedas controlar tu sistema desde el móvil en cualquier lugar del mundo.
+
+## 1. Configuración en Blynk (Web)
+
+1. Ve a [blynk.cloud](https://blynk.cloud/) y crea una cuenta gratuita.
+2. Ve a **Templates** -> **New Template**.
+   - Name: `Sistema Riego`
+   - Hardware: `ESP32`
+   - Connection Type: `WiFi`
+3. Una vez creado, ve a la pestaña **Datastreams** y añade 3 "Virtual Pins":
+   - **V0** (Humedad): Integer, Min 0, Max 100.
+   - **V1** (Humedad Min): Integer, Min 0, Max 100.
+   - **V2** (Intervalo): Integer, Min 5, Max 300.
+4. En la pestaña **Home** (Dashboard), verás un cuadro con `BLYNK_TEMPLATE_ID`, `BLYNK_TEMPLATE_NAME` y `BLYNK_AUTH_TOKEN`. **Copia estos datos**.
+
+## 2. Preparar el Código
+
+1. Abre `arduino logica.cpp`.
+2. Pega los datos de Blynk al principio del archivo:
+   ```cpp
+   #define BLYNK_TEMPLATE_ID "..."
+   #define BLYNK_TEMPLATE_NAME "..."
+   #define BLYNK_AUTH_TOKEN "..."
+   ```
+3. Edita las credenciales WiFi:
+   ```cpp
+   char ssid[] = "TU_RED";
+   char pass[] = "TU_PASS";
+   ```
+4. Sube el código al ESP32.
+
+## 3. Configurar la App Móvil (Android/iOS)
+
+1. Descarga la App "Blynk IoT".
+2. Inicia sesión.
+3. Debería aparecer tu dispositivo (si el ESP32 ya se conectó).
+4. Entra en modo **Developer (icono llave inglesa)** y añade Widgets:
+   - **Gauge** (Medidor): Asócialo al pin **V0**.
+   - **Slider** (Deslizador): Asócialo al pin **V1** (Para configurar humedad mínima).
+   - **Slider**: Asócialo al pin **V2** (Para configurar intervalo).
+5. ¡Listo! Ahora verás la humedad en tiempo real y podrás ajustar los parámetros desde el móvil.
