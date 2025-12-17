@@ -1,4 +1,14 @@
+#include <WiFi.h>
+#include <WebServer.h>
 #include <Servo.h>
+
+// --------------------------------------------------------------------------
+// CREDENCIALES WIFI - ¡EDITA ESTO!
+const char* ssid = "TU_RED_WIFI";
+const char* password = "TU_CONTRASEÑA_WIFI";
+// --------------------------------------------------------------------------
+
+WebServer server(80);
 
 Servo controlsensor;
 Servo pumpServo;
@@ -14,40 +24,17 @@ const int ledMeasuring = 7; // LED encendido mientras mide
 const int ledWaiting = 4;   // LED encendido mientras espera
 const int pumpSignalPin = 2; // Señal del servo que hará la acción de bomba
 
-// POSICIONES DEL SERVO BOMBA (ajustar según tu montaje)
+// POSICIONES DEL SERVO BOMBA
 const int pumpOffAngle = 0;    // posición reposo
 const int pumpOnAngle = 90;    // posición que provoca flujo
 
-// CONTROL DE TIEMPO
+// VARIABLES GLOBALES
 unsigned long lastCheck = 0;
+int ultimaHumedad = 0; // Para guardar el último valor leído
 
-void setup() {
-  Serial.begin(9600);
-
-  controlsensor.attach(9);
-  pumpServo.attach(pumpSignalPin);
-  pumpServo.write(pumpOffAngle);
-
-  pinMode(ledMeasuring, OUTPUT);
-  pinMode(ledWaiting, OUTPUT);
-  digitalWrite(ledMeasuring, LOW);
-  digitalWrite(ledWaiting, HIGH); // Por defecto: sistema esperando
-
-  Serial.println("Sistema iniciado. Esperando comandos...");
-  Serial.println("Comandos disponibles:");
-  Serial.println("SET HUM <valor>");
-  Serial.println("SET TIME <segundos>");
-}
-
-void loop() {
-  recibirComandos();
-
-  unsigned long now = millis();
-  if (now - lastCheck >= interval * 1000UL) {
-    lastCheck = now;
-    medirHumedad();
-  }
-}
+// --------------------------------------------------------------------------
+// FUNCIONES DE CONTROL
+// --------------------------------------------------------------------------
 
 void medirHumedad() {
   // Indicar que estamos midiendo
@@ -60,15 +47,10 @@ void medirHumedad() {
 
   int valor = analogRead(sensorPin);
   int humedad = map(valor, 0, 1023, 0, 100);
+  ultimaHumedad = humedad;
 
-
-  // Envío para la interfaz (formato simple y parseable)
-  Serial.print("HUM ");
-  Serial.println(humedad); // Ejemplo: "HUM 42"
-
-  // (Opcional) enviar valor RAW si lo necesitas:
-  // Serial.print("RAW ");
-  // Serial.println(valor);
+  Serial.print("Humedad medida: ");
+  Serial.println(humedad);
 
   // Regresar servo sensor
   controlsensor.write(0);
@@ -77,7 +59,7 @@ void medirHumedad() {
   if (humedad < humedadMin) {
     Serial.println("Humedad baja. Activando bomba (servo)...");
     pumpServo.write(pumpOnAngle);
-    delay(pumpTimeMs); // tiempo de riego; ajustar según necesidad y montaje
+    delay(pumpTimeMs); 
     pumpServo.write(pumpOffAngle);
     Serial.println("Riego finalizado.");
   }
@@ -87,26 +69,108 @@ void medirHumedad() {
   digitalWrite(ledWaiting, HIGH);
 }
 
-void recibirComandos() {
-  if (!Serial.available()) return;
+// --------------------------------------------------------------------------
+// FUNCIONES DEL SERVIDOR WEB
+// --------------------------------------------------------------------------
 
-  String comando = Serial.readStringUntil('\n');
-  comando.trim();
+void addCorsHeaders() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "*");
+}
 
-  if (comando.startsWith("SET HUM")) {
-    int valor = comando.substring(7).toInt();
-    humedadMin = valor;
-    Serial.print("Humedad mínima actualizada a: ");
-    Serial.println(humedadMin);
+void handleRoot() {
+  addCorsHeaders();
+  String html = "<h1>Sistema de Riego ESP32</h1>";
+  html += "<p>Humedad Ultima: " + String(ultimaHumedad) + "%</p>";
+  html += "<p>Config Humedad Min: " + String(humedadMin) + "%</p>";
+  html += "<p>Intervalo: " + String(interval) + "s</p>";
+  server.send(200, "text/html", html);
+}
+
+void handleData() {
+  addCorsHeaders();
+  // Devuelve JSON con el estado
+  String json = "{";
+  json += "\"humedad\": " + String(ultimaHumedad) + ",";
+  json += "\"conf_min\": " + String(humedadMin) + ",";
+  json += "\"conf_interval\": " + String(interval);
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
+void handleSet() {
+  addCorsHeaders();
+  // Ejemplo de uso: /set?hum=30&time=60
+  if (server.hasArg("hum")) {
+    humedadMin = server.arg("hum").toInt();
+    Serial.println("Config HUM actualizada: " + String(humedadMin));
   }
-  else if (comando.startsWith("SET TIME")) {
-    int valor = comando.substring(8).toInt();
-    interval = valor;
-    Serial.print("Intervalo actualizado a: ");
-    Serial.print(interval);
-    Serial.println(" segundos.");
+  if (server.hasArg("time")) {
+    interval = server.arg("time").toInt();
+    Serial.println("Config TIME actualizada: " + String(interval));
   }
-  else {
-    Serial.println("Comando no reconocido.");
+  
+  server.send(200, "text/plain", "OK");
+}
+
+void handleOptions() {
+  addCorsHeaders();
+  server.send(200);
+}
+
+// --------------------------------------------------------------------------
+// SETUP Y LOOP
+// --------------------------------------------------------------------------
+
+void setup() {
+  Serial.begin(9600);
+  
+  // Pines
+  controlsensor.attach(9);
+  pumpServo.attach(pumpSignalPin);
+  pumpServo.write(pumpOffAngle);
+
+  pinMode(ledMeasuring, OUTPUT);
+  pinMode(ledWaiting, OUTPUT);
+  digitalWrite(ledMeasuring, LOW); // LED start
+  digitalWrite(ledWaiting, HIGH);
+
+  // WiFi
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.print("Conectando a WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Conectado! IP: ");
+  Serial.println(WiFi.localIP());
+
+  // Rutas Web
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/data", HTTP_GET, handleData);
+  server.on("/set", HTTP_GET, handleSet); // Usando GET por simplicidad en tests rapidos
+  server.on("/set", HTTP_POST, handleSet);
+  server.onNotFound([]() {
+    if (server.method() == HTTP_OPTIONS) {
+        handleOptions();
+    } else {
+        server.send(404, "text/plain", "Not found");
+    }
+  });
+
+  server.begin();
+  Serial.println("Servidor HTTP iniciado");
+}
+
+void loop() {
+  server.handleClient(); // Atender peticiones web
+
+  unsigned long now = millis();
+  if (now - lastCheck >= interval * 1000UL) {
+    lastCheck = now;
+    medirHumedad();
   }
 }

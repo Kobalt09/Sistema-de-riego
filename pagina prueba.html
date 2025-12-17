@@ -1,92 +1,154 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-<meta charset="utf-8">
-<title>Configuración Arduino</title>
-<style>
-body {
-  font-family: Arial;
-  max-width: 500px;
-  margin: 20px auto;
-}
-input, button {
-  padding: 6px;
-  margin: 6px 0;
-  width: 100%;
-}
-#log {
-  background: #f3f3f3;
-  padding: 10px;
-  height: 150px;
-  overflow-y: auto;
-  border: 1px solid #ccc;
-}
-</style>
+  <meta charset="utf-8">
+  <title>Configuración Arduino WiFi</title>
+  <style>
+    body {
+      font-family: Arial;
+      max-width: 500px;
+      margin: 20px auto;
+    }
+
+    input,
+    button {
+      padding: 6px;
+      margin: 6px 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .status-box {
+      background: #e0f7fa;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+      border: 1px solid #b2ebf2;
+    }
+
+    #log {
+      background: #f3f3f3;
+      padding: 10px;
+      height: 150px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      font-family: monospace;
+      font-size: 12px;
+    }
+  </style>
 </head>
+
 <body>
 
-<h2>Configuración del Sistema de Riego</h2>
+  <h2>Sistema de Riego - Control WiFi</h2>
 
-<button id="connectBtn">Conectar a Arduino</button>
+  <!-- Sección de Conexión -->
+  <h3>Dirección IP del ESP32</h3>
+  <input id="espIp" type="text" placeholder="Ej: 192.168.1.100" value="192.168.1.">
+  <button id="connectBtn">Conectar / Empezar Lectura</button>
 
-<h3>Humedad mínima (%)</h3>
-<input id="hum" type="number" min="0" max="100" placeholder="Ej: 40">
+  <!-- Estado Actual -->
+  <div class="status-box">
+    <strong>Estado Actual:</strong>
+    <div id="currentStatus">Desconectado...</div>
+    <div>Humedad Última: <span id="valHum">--</span>%</div>
+  </div>
 
-<h3>Intervalo de medición (segundos)</h3>
-<input id="time" type="number" min="5" placeholder="Ej: 30">
+  <!-- Configuración -->
+  <h3>Configuración</h3>
+  <label>Humedad Mínima (%)</label>
+  <input id="hum" type="number" min="0" max="100" placeholder="Ej: 40">
 
-<button id="sendBtn">Enviar configuración</button>
+  <label>Intervalo de medición (segundos)</label>
+  <input id="time" type="number" min="5" placeholder="Ej: 30">
 
-<h3>Respuesta del Arduino</h3>
-<div id="log"></div>
+  <button id="sendBtn">Enviar Configuración</button>
 
-<script>
-let port, writer, reader;
-const logDiv = document.getElementById("log");
+  <h3>Registro de Eventos</h3>
+  <div id="log"></div>
 
-function log(text) {
-  logDiv.innerHTML += text + "<br>";
-  logDiv.scrollTop = logDiv.scrollHeight;
-}
+  <script>
+    let pollingInterval = null;
+    const logDiv = document.getElementById("log");
 
-document.getElementById("connectBtn").onclick = async () => {
-  try {
-    port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 9600 });
+    function log(text) {
+      const time = new Date().toLocaleTimeString();
+      logDiv.innerHTML += `[${time}] ${text}<br>`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
 
-    writer = port.writable.getWriter();
-    reader = port.readable.getReader();
+    function getBaseUrl() {
+      let ip = document.getElementById("espIp").value.trim();
+      if (!ip.startsWith("http")) {
+        ip = "http://" + ip;
+      }
+      return ip;
+    }
 
-    log("Conectado al Arduino.");
+    // Botón Conectar (Inicia el polling)
+    document.getElementById("connectBtn").onclick = () => {
+      if (pollingInterval) clearInterval(pollingInterval);
 
-    // Lectura de mensajes
-    readLoop();
-  } catch (e) {
-    log("Error al conectar: " + e);
-  }
-};
+      log("Iniciando conexión a " + getBaseUrl());
+      fetchData(); // Primer intento inmediato
+      pollingInterval = setInterval(fetchData, 3000); // Polling cada 3s
+    };
 
-async function readLoop() {
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    log(new TextDecoder().decode(value));
-  }
-}
+    // Función para obtener datos
+    async function fetchData() {
+      const url = getBaseUrl() + "/data";
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Error HTTP " + response.status);
 
-document.getElementById("sendBtn").onclick = async () => {
-  const hum = document.getElementById("hum").value;
-  const t = document.getElementById("time").value;
+        const data = await response.json();
 
-  if (hum) writeSerial(`SET HUM ${hum}\n`);
-  if (t) writeSerial(`SET TIME ${t}\n`);
-};
+        // Actualizar UI
+        document.getElementById("currentStatus").innerText = "Conectado";
+        document.getElementById("currentStatus").style.color = "green";
+        document.getElementById("valHum").innerText = data.humedad;
 
-function writeSerial(text) {
-  writer.write(new TextEncoder().encode(text));
-  log("Enviado: " + text);
-}
-</script>
+        // Solo actualizar inputs si no están enfocados (para no molestar al usuario mientras escribe)
+        if (document.activeElement.id !== "hum") {
+          document.getElementById("hum").placeholder = `Actual: ${data.conf_min}`;
+        }
+        if (document.activeElement.id !== "time") {
+          document.getElementById("time").placeholder = `Actual: ${data.conf_interval}`;
+        }
+
+      } catch (e) {
+        document.getElementById("currentStatus").innerText = "Error de conexión";
+        document.getElementById("currentStatus").style.color = "red";
+        console.error(e);
+      }
+    }
+
+    // Botón Enviar Configuración
+    document.getElementById("sendBtn").onclick = async () => {
+      const hum = document.getElementById("hum").value;
+      const t = document.getElementById("time").value;
+
+      const params = new URLSearchParams();
+      if (hum) params.append("hum", hum);
+      if (t) params.append("time", t);
+
+      const url = `${getBaseUrl()}/set?${params.toString()}`;
+
+      log("Enviando config...");
+      try {
+        const response = await fetch(url); // GET o POST sirve según el código arduino
+        const text = await response.text();
+        log("Respuesta: " + text);
+        // Forzar actualización inmediata de datos
+        setTimeout(fetchData, 500);
+      } catch (e) {
+        log("Error al enviar: " + e.message);
+      }
+    };
+
+  </script>
 
 </body>
+
 </html>
