@@ -1,7 +1,7 @@
 "use client";
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useEffect } from "react";
 import * as THREE from "three";
 
 const vertexShader = `
@@ -117,48 +117,54 @@ void main() {
 `;
 
 const Screen = () => {
-    const meshRef = useRef<THREE.Mesh>(null);
-    const { size } = useThree();
+  const meshRef = useRef<THREE.Mesh>(null);
+  const { size } = useThree();
 
-    const uniforms = useMemo(
-        () => ({
-            uTime: { value: 0 },
-            uResolution: { value: new THREE.Vector2(size.width, size.height) },
-        }),
-        [size]
-    );
+  const uniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uResolution: { value: new THREE.Vector2(size.width, size.height) },
+    }),
+    [] // Create once
+  );
 
-    useFrame((state) => {
-        if (meshRef.current) {
-            // @ts-ignore
-            meshRef.current.material.uniforms.uTime.value = state.clock.getElapsedTime();
-        }
-    });
+  // Update resolution when size changes
+  useEffect(() => {
+    uniforms.uResolution.value.set(size.width, size.height);
+  }, [size, uniforms]);
 
-    return (
-        <mesh ref={meshRef}>
-            <planeGeometry args={[size.width, size.height]} />
-            <shaderMaterial
-                vertexShader={vertexShader}
-                fragmentShader={fragmentShader}
-                uniforms={uniforms}
-                transparent={true}
-                blending={THREE.AdditiveBlending}
-            />
-        </mesh>
-    );
+  useFrame((state) => {
+    if (meshRef.current) {
+      // @ts-ignore
+      meshRef.current.material.uniforms.uTime.value = state.clock.getElapsedTime();
+    }
+  });
+
+  return (
+    <mesh ref={meshRef}>
+      <planeGeometry args={[size.width, size.height]} />
+      <shaderMaterial
+        vertexShader={vertexShader}
+        fragmentShader={fragmentShader}
+        uniforms={uniforms}
+        transparent={true}
+        blending={THREE.AdditiveBlending}
+      />
+    </mesh>
+  );
 };
 
 export default function VHSOverlay() {
-    return (
-        <div className="fixed inset-0 pointer-events-none z-50 mix-blend-screen opacity-50">
-            <Canvas
-                camera={{ position: [0, 0, 1] }}
-                orthographic
-                gl={{ alpha: true, antialias: false }}
-            >
-                <Screen />
-            </Canvas>
-        </div>
-    );
+  return (
+    <div className="fixed inset-0 pointer-events-none z-50 mix-blend-screen opacity-50">
+      <Canvas
+        camera={{ position: [0, 0, 1] }}
+        orthographic
+        gl={{ alpha: true, antialias: false }}
+        style={{ pointerEvents: "none" }}
+      >
+        <Screen />
+      </Canvas>
+    </div>
+  );
 }

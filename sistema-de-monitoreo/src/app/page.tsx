@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import VHSOverlay from "../components/VHSOverlay";
-
 // Pin Configuration
 const PIN_HUMEDAD = "V0";
 const PIN_MIN_HUM = "V1";
@@ -86,9 +85,13 @@ export default function Home() {
       return;
     }
 
+    // Ensure non-negative before sending
+    const safeMinHum = Math.max(0, parseInt(minHum || "0")).toString();
+    const safeInterval = Math.max(0, parseInt(paramInterval || "0")).toString();
+
     let params = [];
-    if (minHum) params.push(`${PIN_MIN_HUM}=${minHum}`);
-    if (paramInterval) params.push(`${PIN_INTERVALO}=${paramInterval}`);
+    if (minHum) params.push(`${PIN_MIN_HUM}=${safeMinHum}`);
+    if (paramInterval) params.push(`${PIN_INTERVALO}=${safeInterval}`);
 
     if (params.length === 0) {
       addLog("Nada que enviar");
@@ -112,8 +115,91 @@ export default function Home() {
     }
   };
 
+  // Keyboard Focus Management
+  const handleGlobalKeyDown = useCallback((e: KeyboardEvent) => {
+    const focusableIds = [
+      "token",
+      "btn-connect",
+      "input-min-hum-dec", "input-min-hum", "input-min-hum-inc",
+      "input-interval-dec", "input-interval", "input-interval-inc",
+      "btn-update"
+    ];
+    const activeId = document.activeElement?.id || "";
+
+    // Auto-focus if nothing (or body) is selected and user tries to navigate
+    if (!focusableIds.includes(activeId) && ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+      e.preventDefault();
+      document.getElementById("token")?.focus();
+      return;
+    }
+
+    // Define Groups
+    const configIds = [
+      "input-min-hum-dec", "input-min-hum", "input-min-hum-inc",
+      "input-interval-dec", "input-interval", "input-interval-inc"
+    ];
+
+    // Vertical Navigation (Section Jumps)
+    if (e.key === "ArrowDown") {
+      if (activeId === "token") {
+        e.preventDefault();
+        document.getElementById("btn-connect")?.focus();
+        return;
+      }
+      if (activeId === "btn-connect") {
+        e.preventDefault();
+        document.getElementById("input-min-hum-dec")?.focus();
+        return;
+      }
+      if (configIds.includes(activeId)) {
+        e.preventDefault();
+        document.getElementById("btn-update")?.focus();
+        return;
+      }
+    }
+
+    if (e.key === "ArrowUp") {
+      if (activeId === "btn-update") {
+        e.preventDefault();
+        document.getElementById("input-interval-inc")?.focus();
+        return;
+      }
+      if (configIds.includes(activeId)) {
+        e.preventDefault();
+        document.getElementById("btn-connect")?.focus();
+        return;
+      }
+      if (activeId === "btn-connect") {
+        e.preventDefault();
+        document.getElementById("token")?.focus();
+        return;
+      }
+    }
+
+    // Horizontal Navigation (Linear Flow within Config)
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      if (configIds.includes(activeId)) {
+        e.preventDefault();
+        const currentIdx = configIds.indexOf(activeId);
+
+        if (e.key === "ArrowRight") {
+          const nextId = configIds[currentIdx + 1];
+          if (nextId) document.getElementById(nextId)?.focus();
+        } else {
+          const prevId = configIds[currentIdx - 1];
+          if (prevId) document.getElementById(prevId)?.focus();
+        }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [handleGlobalKeyDown]);
+
   return (
-    <div className="crt-monitor flex min-h-screen lg:h-screen flex-col p-4 md:p-8 text-green-500 font-mono selection:bg-green-900 selection:text-green-100 lg:overflow-hidden">
+    <div className="crt-monitor flex h-screen flex-col p-4 md:p-8 text-green-500 font-mono selection:bg-green-900 selection:text-green-100 overflow-y-auto lg:overflow-hidden">
       <VHSOverlay />
       <div className="crt-overlay pointer-events-none"></div>
       <div className="scanlines pointer-events-none"></div>
@@ -122,8 +208,8 @@ export default function Home() {
         {/* Header */}
         <header className="border-b-2 border-green-800 pb-4 mb-4 flex justify-between items-end">
           <div>
-            <h1 className="text-xl md:text-3xl font-bold uppercase tracking-widest text-shadow-green animate-text-flicker">
-              SISTEMA MONITOREO <span className="animate-pulse">_</span>
+            <h1 className="text-xl md:text-3xl uppercase tracking-widest text-shadow-green animate-text-flicker">
+              SISTEMA DE MONITOREO DE HUMEDAD<span className="animate-pulse">_</span>
             </h1>
             <p className="text-xs md:text-sm opacity-70 mt-1">
               v2.0 // TERMINAL ACCESS // {new Date().toLocaleDateString()}
@@ -142,7 +228,8 @@ export default function Home() {
             {/* Connection Section */}
             <section className="border border-green-800 bg-green-900/5 p-2 rounded-sm flex flex-col justify-center min-h-0">
               <h2 className="text-sm font-bold mb-1 border-b border-green-800/50 pb-1 flex items-center gap-2">
-                &gt; CONEXIÓN
+                <span className="icon-[mdi--server-network] w-4 h-4"></span>
+                &gt; CONEXIÓN:
               </h2>
               <div className="space-y-2">
                 <div className="flex flex-col gap-1">
@@ -152,14 +239,18 @@ export default function Home() {
                     type="password"
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
-                    className="bg-black border border-green-700 p-1 text-xs focus:border-green-400 focus:outline-none focus:ring-1 focus:ring-green-500/50 transition-all font-mono"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleUpdateParams();
+                    }}
+                    className="bg-black border border-green-700 p-1 text-xs focus:border-green-400 focus:outline-none focus:ring-1 focus:ring-green-500/50 transition-all font-mono focus:shadow-[0_0_10px_rgba(34,197,94,0.3)]"
                     placeholder="Enter Blynk Token..."
                   />
                 </div>
                 <button
+                  id="btn-connect"
                   onClick={handleConnect}
                   disabled={isPolling}
-                  className="w-full border border-green-600 bg-green-900/20 py-1 hover:bg-green-500 hover:text-black transition-colors font-bold uppercase text-xs disabled:opacity-50 disabled:cursor-not-allowed group"
+                  className="w-full border border-green-600 bg-green-900/20 py-1 hover:bg-green-500 hover:text-black transition-colors font-bold uppercase text-xs disabled:opacity-50 disabled:cursor-not-allowed group focus:bg-green-500 focus:text-black focus:outline-none focus:shadow-[0_0_15px_rgba(34,197,94,0.5)]"
                 >
                   {isPolling ? 'CONECTADO' : '[ INICIAR CONEXI\u00D3N ]'}
                 </button>
@@ -171,13 +262,14 @@ export default function Home() {
 
             {/* Live Status Section */}
             <section className="border border-green-800 bg-green-900/5 p-2 rounded-sm flex flex-col justify-center min-h-0">
-              <h2 className="text-sm font-bold mb-1 border-b border-green-800/50 pb-1">
-                &gt; SENSORES EN TIEMPO REAL
+              <h2 className="text-sm font-bold mb-1 border-b border-green-800/50 pb-1 flex items-center gap-2">
+                <span className="icon-[mdi--chart-line-variant] w-4 h-4"></span>
+                &gt; SENSORES EN TIEMPO REAL:
               </h2>
               <div className="flex items-center justify-between">
-                <div className="text-xs">HUMEDAD SENSOR A1</div>
-                <div className="text-3xl font-bold tracking-tighter animate-pulse">
-                  {humidity}<span className="text-sm text-green-700">%</span>
+                <div className="text-sm">Humedad Sensor A1:</div>
+                <div className="text-sm font-bold tracking-tighter animate-pulse">
+                  {humidity}<span className="text-sm text-green-700"> %</span>
                 </div>
               </div>
               <div className="w-full bg-green-900/30 h-1.5 mt-1 rounded-full overflow-hidden">
@@ -190,34 +282,31 @@ export default function Home() {
 
             {/* Config Section */}
             <section className="border border-green-800 bg-green-900/5 p-2 rounded-sm flex flex-col justify-center min-h-0">
-              <h2 className="text-sm font-bold mb-1 border-b border-green-800/50 pb-1">
-                &gt; CONFIGURACIÓN REMOTA
+              <h2 className="text-sm font-bold mb-1 border-b border-green-800/50 pb-1 flex items-center gap-2">
+                <span className="icon-[mdi--tune-vertical] w-4 h-4"></span>
+                &gt; CONFIGURACIÓN REMOTA:
               </h2>
               <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase opacity-80">Min Humedad (%)</label>
-                  <input
-                    type="number"
-                    value={minHum}
-                    onChange={(e) => setMinHum(e.target.value)}
-                    className="w-full bg-black border border-green-700 p-1 text-xs focus:border-green-400 focus:outline-none"
-                    placeholder="Ej: 40"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase opacity-80">Intervalo (s)</label>
-                  <input
-                    type="number"
-                    value={paramInterval}
-                    onChange={(e) => setParamInterval(e.target.value)}
-                    className="w-full bg-black border border-green-700 p-1 text-xs focus:border-green-400 focus:outline-none"
-                    placeholder="Ej: 30"
-                  />
-                </div>
+                <NumberInput
+                  id="input-min-hum"
+                  label="Min Humedad (%):"
+                  value={minHum}
+                  onChange={setMinHum}
+                  placeholder="Ej: 40"
+                  max={100}
+                />
+                <NumberInput
+                  id="input-interval"
+                  label="Intervalo (s):"
+                  value={paramInterval}
+                  onChange={setParamInterval}
+                  placeholder="Ej: 30"
+                />
               </div>
               <button
+                id="btn-update"
                 onClick={handleUpdateParams}
-                className="w-full mt-2 border border-green-600 bg-green-900/20 py-1 hover:bg-green-500 hover:text-black transition-colors font-bold uppercase text-xs"
+                className="w-full mt-2 border border-green-600 bg-green-900/20 py-1 hover:bg-green-500 hover:text-black transition-colors font-bold uppercase text-xs focus:bg-green-500 focus:text-black focus:outline-none focus:shadow-[0_0_15px_rgba(34,197,94,0.5)]"
               >
                 [ ACTUALIZAR PARÁMETROS ]
               </button>
@@ -228,9 +317,13 @@ export default function Home() {
           {/* Column 2: Logs */}
           <div className="flex flex-col h-full min-h-0">
             <section className="border border-green-800 bg-black flex-1 flex flex-col p-1 rounded-sm shadow-[0_0_10px_rgba(0,128,0,0.2)]">
-              <h2 className="bg-green-900/20 p-2 text-sm font-bold border-b border-green-800/50 flex justify-between">
-                <span>&gt; SYSTEM_LOG</span>
-                <span className="animate-pulse">● REC</span>
+              <h2 className="bg-green-900/20 p-2 text-sm font-bold border-b border-green-800/50 flex justify-between items-center">
+                <span className="flex items-center gap-2">
+                  &gt; SYSTEM_LOG
+                </span>
+                <span className="animate-pulse flex items-center gap-1">
+                  <span className="icon-[mdi--record] text-red-500 w-3 h-3"></span> REC
+                </span>
               </h2>
               <div className="flex-1 overflow-y-auto p-4 font-mono text-xs md:text-sm space-y-1 scrollbar-thin scrollbar-thumb-green-700 scrollbar-track-black">
                 {logs.length === 0 && (
@@ -260,3 +353,99 @@ export default function Home() {
     </div>
   );
 }
+
+const NumberInput = ({ id, label, value, onChange, placeholder, max }: { id: string, label: string, value: string, onChange: (val: string) => void, placeholder: string, max?: number }) => {
+  const valueRef = useRef(value);
+  const onChangeRef = useRef(onChange);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    valueRef.current = value;
+    onChangeRef.current = onChange;
+  }, [value, onChange]);
+
+  const adjustValue = (delta: number) => {
+    const current = parseInt(valueRef.current || "0");
+    let newValue = Math.max(0, current + delta);
+    if (max !== undefined) newValue = Math.min(max, newValue);
+    onChangeRef.current(newValue.toString());
+  };
+
+  const startAdjusting = (delta: number) => {
+    adjustValue(delta); // Immediate action
+    timerRef.current = setTimeout(() => {
+      intervalRef.current = setInterval(() => {
+        adjustValue(delta);
+      }, 100); // Speed: 100ms
+    }, 500); // Delay: 500ms
+  };
+
+  const stopAdjusting = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+  };
+
+  useEffect(() => {
+    return () => stopAdjusting();
+  }, []);
+
+  return (
+    <div className="space-y-1">
+      <label className="text-sm opacity-80 tracking-tighter">{label}</label>
+      <div className="flex items-center border border-green-700 bg-black overflow-hidden focus-within:border-green-400 focus-within:ring-1 focus-within:ring-green-500/30 transition-all shadow-[0_0_5px_rgba(0,128,0,0)]">
+        <button
+          id={`${id}-dec`}
+          onMouseDown={() => startAdjusting(-1)}
+          onMouseUp={stopAdjusting}
+          onMouseLeave={stopAdjusting}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              adjustValue(-1);
+            }
+          }}
+          className="px-2 py-1 bg-green-900/20 hover:bg-green-700 hover:text-black transition-colors font-bold text-xs border-r border-green-800 focus:bg-green-500 focus:text-black focus:outline-none"
+        >
+          -
+        </button>
+        <input
+          id={id}
+          type="text"
+          value={value}
+          onChange={(e) => {
+            let val = e.target.value.replace(/\D/g, ""); // Allow only digits
+            if (max !== undefined && val !== "") {
+              if (parseInt(val) > max) val = max.toString();
+            }
+            onChange(val);
+          }}
+          onKeyDown={(e) => {
+            // Confirm with Enter and move focus to the + button
+            if (e.key === "Enter") {
+              e.preventDefault();
+              document.getElementById(`${id}-inc`)?.focus();
+            }
+          }}
+          className="w-full bg-transparent px-2 py-1 text-xs focus:outline-none text-center font-mono appearance-none focus:bg-green-900/30"
+          placeholder={placeholder}
+        />
+        <button
+          id={`${id}-inc`}
+          onMouseDown={() => startAdjusting(1)}
+          onMouseUp={stopAdjusting}
+          onMouseLeave={stopAdjusting}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              adjustValue(1);
+            }
+          }}
+          className="px-2 py-1 bg-green-900/20 hover:bg-green-700 hover:text-black transition-colors font-bold text-xs border-l border-green-800 focus:bg-green-500 focus:text-black focus:outline-none"
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+};
