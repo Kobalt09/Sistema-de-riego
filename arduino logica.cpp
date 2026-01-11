@@ -10,16 +10,16 @@
 // **************************************************************************
 // LIBRERÍAS
 // **************************************************************************
+#include <BlynkSimpleEsp32.h>
+#include <ESP32Servo.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
-#include <BlynkSimpleEsp32.h>
 #include <time.h>
-#include <ESP32Servo.h>
 
 // **************************************************************************
 // CREDENCIALES WIFI
 // **************************************************************************
-char ssid[] = "PVZ";
+char ssid[] = "Wokwi-GUEST";
 char pass[] = "";
 
 // **************************************************************************
@@ -30,14 +30,15 @@ Servo pumpServo;
 BlynkTimer timer;
 
 // PINES
-const int sensorPin = 16;
-const int ledMeasuring = 2; 
-const int ledWaiting = 4;   
-const int pumpSignalPin = 18; 
+const int sensorPin = 34;
+
+const int ledMeasuring = 2;
+const int ledWaiting = 4;
+const int pumpSignalPin = 18;
 
 // CONFIGURACIÓN (Valores por defecto)
 int humedadMin = 40;
-unsigned long interval = 15;       
+unsigned long interval = 15;
 unsigned long pumpTimeMs = 3000;
 
 // HELPERS
@@ -50,7 +51,7 @@ int timerId = -1; // Para controlar el timer dinámico
 // Función principal de medición
 void medirHumedad() {
   Serial.println(">>> Iniciando medición...");
-  
+
   // LED
   digitalWrite(ledMeasuring, HIGH);
   digitalWrite(ledWaiting, LOW);
@@ -59,13 +60,18 @@ void medirHumedad() {
   controlsensor.write(90);
   delay(700); // Pequeño delay bloqueante inevitable por el servo
 
-  // Leer
+  // Leer potenciómetro
   int valor = analogRead(sensorPin);
+
+  // MAPEO PARA POTENCIÓMETRO:
+  // Si quieres que al girar a la derecha aumente la humedad: (0, 4095, 0, 100)
+  // Si quieres simular un sensor real (normalmente invertido): (0, 4095, 100,0)
   int humedad = map(valor, 0, 4095, 0, 100);
-  
+
   // Imprimir y Enviar a Blynk
-  Serial.print("Humedad: ");
-  Serial.println(humedad);
+  Serial.print("Humedad Medida: ");
+  Serial.print(humedad);
+  Serial.println("%");
   Blynk.virtualWrite(V0, humedad); // ENVIAR DATO A V0
 
   // Regresar sensor
@@ -75,12 +81,12 @@ void medirHumedad() {
   // Evaluar Riego
   if (humedad < humedadMin) {
     Serial.println("Humedad BAJA. Riego ACTIVADO.");
-    Blynk.logEvent("alerta_riego", "Humedad baja detectada, regando..."); // Opcional: Evento
+    Blynk.logEvent("alerta_riego", "Humedad baja detectada, regando...");
     /*
     pumpServo.write(90); // ON
-    delay(pumpTimeMs);   
+    delay(pumpTimeMs);
     pumpServo.write(0);  // OFF
-    
+
     Serial.println("Riego FINALIZADO.");
     */
   } else {
@@ -96,23 +102,36 @@ void medirHumedad() {
 // HANDLERS DE BLYNK (Inputs desde la App)
 // **************************************************************************
 
-// V1: Slider/Input para Humedad Mínima
+// V1: Humedad Mínima (0 - 100)
 BLYNK_WRITE(V1) {
-  humedadMin = param.asInt();
-  Serial.print("Nueva Humedad Min: ");
+  int val = param.asInt();
+  // Validar rango 0-100
+  if (val < 0)
+    val = 0;
+  if (val > 100)
+    val = 100;
+
+  humedadMin = val;
+  Serial.print(">>> BLYNK_WRITE(V1): Nueva Humedad Min configurada en: ");
   Serial.println(humedadMin);
 }
 
-// V2: Slider/Input para Intervalo (segundos)
+// V2: Intervalo de Medición (5 - 3600 seg)
 BLYNK_WRITE(V2) {
   int nuevoIntervalo = param.asInt();
-  if (nuevoIntervalo < 5) nuevoIntervalo = 5; // Protección mínima
-  
+
+  // Validar rango según especificación (5s a 3600s)
+  if (nuevoIntervalo < 5)
+    nuevoIntervalo = 5;
+  if (nuevoIntervalo > 3600)
+    nuevoIntervalo = 3600;
+
   if (nuevoIntervalo != interval) {
     interval = nuevoIntervalo;
-    Serial.print("Nuevo Intervalo: ");
-    Serial.println(interval);
-    
+    Serial.print(">>> BLYNK_WRITE(V2): Nuevo Intervalo configurado en: ");
+    Serial.print(interval);
+    Serial.println(" seg");
+
     // Reiniciar timer con nuevo tiempo
     if (timerId != -1) {
       timer.deleteTimer(timerId);
@@ -123,6 +142,7 @@ BLYNK_WRITE(V2) {
 
 // Cuando se conecta, sincronizamos valores por si la App tiene otros
 BLYNK_CONNECTED() {
+  Serial.println(">>> Blynk Conectado. Sincronizando Datastreams V1 y V2...");
   Blynk.syncVirtual(V1, V2);
 }
 
@@ -148,7 +168,7 @@ void setup() {
 
   // Configurar timer inicial
   timerId = timer.setInterval(interval * 1000L, medirHumedad);
-  
+
   Serial.println("Sistema Blynk Iniciado.");
 }
 

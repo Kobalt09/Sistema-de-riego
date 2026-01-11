@@ -2,14 +2,15 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import VHSOverlay from "../components/VHSOverlay";
-// Pin Configuration
-const PIN_HUMEDAD = "V0";
-const PIN_MIN_HUM = "V1";
-const PIN_INTERVALO = "V2";
+// Configuración de Pines
+const PIN_HUMEDAD = "v0";
+const PIN_MIN_HUM = "v1";
+const PIN_INTERVALO = "v2";
 
 export default function Home() {
-  // State
-  const [token, setToken] = useState("MkGbBwmpKaV2DYEUepVLTzdiXVmdzaYc");
+  // Estado
+  // Usar variable de entorno o fallback a cadena vacía para evitar errores
+  const [token, setToken] = useState(process.env.NEXT_PUBLIC_BLYNK_TOKEN || "");
   const [humidity, setHumidity] = useState<string>("--");
   const [minHum, setMinHum] = useState<string>("");
   const [paramInterval, setParamInterval] = useState<string>("");
@@ -18,11 +19,11 @@ export default function Home() {
   const [logs, setLogs] = useState<string[]>([]);
   const [isPolling, setIsPolling] = useState(false);
 
-  // References
+  // Referencias
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  // Helpers
+  // Auxiliares
   const addLog = (text: string) => {
     const time = new Date().toLocaleTimeString();
     setLogs((prev) => [...prev, `[${time}] ${text}`]);
@@ -34,7 +35,7 @@ export default function Home() {
   }, [logs]);
 
   useEffect(() => {
-    // Cleanup polling on unmount
+    // Limpieza al desmontar
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
@@ -42,6 +43,7 @@ export default function Home() {
 
   const fetchData = async () => {
     if (!token) return;
+    // Importante: Blynk IoT requiere 'v' minúscula para los pines en la mayoría de llamadas API
     const url = `https://blynk.cloud/external/api/get?token=${token}&${PIN_HUMEDAD}&${PIN_MIN_HUM}&${PIN_INTERVALO}`;
 
     try {
@@ -52,16 +54,30 @@ export default function Home() {
 
       setIsConnected(true);
       setStatusMsg("Conectado - Recibiendo datos");
-      setHumidity(data[PIN_HUMEDAD] || "--");
 
-      // Update placeholders (visual feedback) or values if empty
-      // In this React version, we'll keep the input values independent unless we want to force sync
-      // For now, let's just log the sync
+      // Actualizar humedad - Blynk devuelve un objeto JSON cuando se piden múltiples pines
+      if (data[PIN_HUMEDAD] !== undefined) {
+        setHumidity(data[PIN_HUMEDAD].toString());
+      }
+
+      // Sincronización proactiva
+      if (minHum === "" && data[PIN_MIN_HUM] !== undefined) {
+        setMinHum(data[PIN_MIN_HUM].toString());
+      }
+      if (paramInterval === "" && data[PIN_INTERVALO] !== undefined) {
+        setParamInterval(data[PIN_INTERVALO].toString());
+      }
 
     } catch (e: any) {
       setIsConnected(false);
       setStatusMsg("Error de Conexión");
-      addLog("Error: " + e.message);
+      addLog("Error conexión: " + e.message);
+      // Detener polling ante fallo crítico
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+        setIsPolling(false);
+      }
     }
   };
 
@@ -71,12 +87,18 @@ export default function Home() {
       return;
     }
 
-    if (pollingRef.current) clearInterval(pollingRef.current);
-
-    addLog("Iniciando conexión a Blynk Cloud...");
-    setIsPolling(true);
-    fetchData();
-    pollingRef.current = setInterval(fetchData, 5000);
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+      setIsPolling(false);
+      setStatusMsg("Desconectado");
+      addLog("Conexión detenida.");
+    } else {
+      addLog("Iniciando conexión a Blynk Cloud...");
+      setIsPolling(true);
+      fetchData();
+      pollingRef.current = setInterval(fetchData, 3000); // Poll cada 3 segundos para mejor respuesta
+    }
   };
 
   const handleUpdateParams = async () => {
@@ -85,7 +107,7 @@ export default function Home() {
       return;
     }
 
-    // Ensure non-negative before sending
+    // Asegurar no negativos antes de enviar
     const safeMinHum = Math.max(0, parseInt(minHum || "0")).toString();
     const safeInterval = Math.max(0, parseInt(paramInterval || "0")).toString();
 
@@ -98,20 +120,21 @@ export default function Home() {
       return;
     }
 
+    // Blynk uses /batch/update for multiple pins
     const url = `https://blynk.cloud/external/api/batch/update?token=${token}&${params.join("&")}`;
-    addLog("Enviando comando...");
+    addLog(`Enviando: ${params.join(", ")}...`);
 
     try {
       const response = await fetch(url);
       if (response.ok) {
-        addLog("Comando enviado OK");
-        // Immediate refresh
-        setTimeout(fetchData, 1000);
+        addLog("Parámetros actualizados con éxito.");
+        // Immediate refresh to see changes
+        setTimeout(fetchData, 800);
       } else {
-        addLog("Error enviando: " + response.status);
+        addLog("Error API (400?): " + response.status);
       }
     } catch (e: any) {
-      addLog("Error red: " + e.message);
+      addLog("Error de red: " + e.message);
     }
   };
 
